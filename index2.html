@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>AR Practice</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+
+    #scanButton {
+      width: 200px;
+      height: 40px;
+      margin: 50px;
+    }
+
+    #arCanvas {
+      display: none;
+      width: 100%;
+      height: 100%;
+    }
+  </style>
+</head>
+
+<body>
+  <button id="scanButton">Scan Object</button>
+  <canvas id="arCanvas"></canvas>
+
+  <!-- Include Three.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <script>
+    const canvas = document.getElementById('arCanvas');
+    const gl = canvas.getContext('webgl');
+
+    // Click event to start AR session
+    document.getElementById('scanButton').addEventListener('click', function () {
+      if (!navigator.xr) {
+        alert('WebXR not supported in your browser.');
+        return;
+      }
+
+      navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['local-floor'] }).then(onSessionStarted).catch(onRequestSessionError);
+    });
+
+    function onRequestSessionError(ex) {
+      console.error('Failed to start AR session:', ex.message);
+    }
+
+    function onSessionStarted(session) {
+      session.addEventListener('end', onSessionEnded);
+      gl.makeXRCompatible().then(() => {
+        const renderer = new THREE.WebGLRenderer({ alpha: true, canvas: canvas, context: gl });
+        renderer.autoClear = false;
+
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+        scene.add(camera);
+
+        const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
+        light.position.set(0.5, 1, 0.25);
+        scene.add(light);
+
+        const cubeGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+        const cubeMaterial = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
+        const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
+        cube.position.set(0, 0, -0.5);
+        scene.add(cube);
+
+        session.updateRenderState({
+          baseLayer: new XRWebGLLayer(session, gl)
+        });
+
+        const referenceSpaceType = 'local-floor';
+        session.requestReferenceSpace(referenceSpaceType).then(refSpace => {
+          const xrReferenceSpace = refSpace;
+
+          function onXRFrame(time, frame) {
+            session.requestAnimationFrame(onXRFrame);
+            const pose = frame.getViewerPose(xrReferenceSpace);
+
+            if (pose) {
+              const glLayer = session.renderState.baseLayer;
+              gl.bindFramebuffer(gl.FRAMEBUFFER, glLayer.framebuffer);
+              renderer.setSize(glLayer.framebufferWidth, glLayer.framebufferHeight, false);
+              gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+              const view = pose.views[0];
+              const viewport = glLayer.getViewport(view);
+              renderer.setViewport(viewport.x, viewport.y, viewport.width, viewport.height);
+
+              const viewMatrix = new THREE.Matrix4().fromArray(view.transform.inverse.matrix);
+              camera.matrix.fromArray(view.transform.matrix);
+              camera.projectionMatrix.fromArray(view.projectionMatrix);
+              camera.updateMatrixWorld(true);
+
+              renderer.render(scene, camera);
+            }
+          }
+
+          session.requestAnimationFrame(onXRFrame);
+        });
+      });
+    }
+
+    function onSessionEnded() {
+      console.log('AR session ended');
+    }
+  </script>
+</body>
+
+</html>
